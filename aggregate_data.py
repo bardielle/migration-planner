@@ -2,7 +2,7 @@ import json
 import argparse
 
 def get_value_in_GB(val):
-    return  round(val / (1024 ** 3), 2)
+    return  (int) (round(val / (1024 ** 3), 2))
 
 def infra_host_per_cluster(esxis_information):
     host_per_clsusters = []
@@ -53,6 +53,30 @@ def infra_host_powerstate(esxi_hosts):
         power_state[host['power_state']] = power_state[host['power_state']] + 1
     return power_state
 
+def histogram(data_list):
+    min_val = min(data_list)
+    max_val = max(data_list)
+    range = max_val-min_val
+    number_of_data_points = len(data_list)
+    number_of_bins = (int) (number_of_data_points ** 0.5)
+    bin_size = range / number_of_bins
+    # initialize the bin with 0s
+    bins = []
+    for index in number_of_bins:
+        bins[index] = 0
+
+    for data in data_list:
+        bin_index = (int) (data - min_val)
+        if bin_index == number_of_bins:
+            bin_index = bin_index - 1
+
+        bins[bin_index] = bins[bin_index] + 1
+
+    return {
+        "minValue": min_val,
+        "binSize": bin_size,
+        "data": bins
+    }
 
 def vms(vm_details, validator):
     migrateable_vms_data = migrateable_vms(validator)
@@ -85,6 +109,10 @@ def vms(vm_details, validator):
 
     power_state = {}
     guest_os = {}
+    cpu_set = []
+    disk_count_set = []
+    disk_GB_set = []
+    memory_set = []
 
     for vm in vm_details:
         vm_memory = vm['memory']['size_MiB']
@@ -94,6 +122,13 @@ def vms(vm_details, validator):
             total_disk_capacity = total_disk_capacity + vm['disks'][vm_disk]['capacity']
         total_disk_capacity_GB = get_value_in_GB(total_disk_capacity)
         vm_disk_count = len(vm['disks'])
+
+        #update the histogram data list
+        cpu_set.append(vm_cpu)
+        disk_count_set.append(vm_disk_count)
+        disk_GB_set.append(total_disk_capacity_GB)
+        memory_set.append(vm_memory)
+
         # migrateable
         if vm["name"] in migrateable_vms_data["migratable_vms"]:
             total_memory["total_for_migrateable"] = total_memory["total_for_migrateable"] + vm_memory
@@ -131,19 +166,22 @@ def vms(vm_details, validator):
         "total": total_cpu["total"],
         "totalForMigratable": total_cpu["total_for_migrateable"],
         "totalForMigratableWithWarnings": total_cpu["total_for_migrateable_with_warnings"],
-        "totalForNotMigratable": total_cpu["total_for_not_migrateable"]
+        "totalForNotMigratable": total_cpu["total_for_not_migrateable"],
+        "histogram": histogram(cpu_set)
     }
     ram = {
         "total": total_memory["total"],
         "totalForMigratable": total_memory["total_for_migrateable"],
         "totalForMigratableWithWarnings": total_memory["total_for_migrateable_with_warnings"],
-        "totalForNotMigratable": total_memory["total_for_not_migrateable"]
+        "totalForNotMigratable": total_memory["total_for_not_migrateable"],
+        "histogram": histogram(memory_set)
     }
     diskGB = {
         "total": total_disk_GB["total"],
         "totalForMigratable": total_disk_GB["total_for_migrateable"],
         "totalForMigratableWithWarnings": total_disk_GB["total_for_migrateable_with_warnings"],
         "totalForNotMigratable": total_disk_GB["total_for_not_migrateable"],
+        "histogram": histogram(disk_GB_set)
 
     }
     diskCount = {
@@ -151,7 +189,7 @@ def vms(vm_details, validator):
         "totalForMigratable": total_disk_count["total_for_migrateable"],
         "totalForMigratableWithWarnings": total_disk_count["total_for_migrateable_with_warnings"],
         "totalForNotMigratable": total_disk_count["total_for_not_migrateable"],
-
+        "histogram": histogram(disk_count_set)
     }
     return {
         "total": total_vms,
