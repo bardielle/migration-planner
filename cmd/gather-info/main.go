@@ -11,9 +11,11 @@ import (
 	"strings"
 
 	"github.com/kubev2v/migration-planner/pkg/log"
-	"github.com/vmware/govmomi/session/cache"
-	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vim25/soap"
+
+	"github.com/kubev2v/migration-planner/internal/gather_info"
 )
 
 func main() {
@@ -62,9 +64,30 @@ func NewGatherInformationCommand() (*gatherInfoCmd, error) {
 }
 
 func (a *gatherInfoCmd) Execute() error {
-	// Create new client
 	// Create a template output file
+
+	// Create new client
+	vCenterCredentials, err := NewVCenterClients(context.Background())
+	if err != nil {
+		return err
+	}
+	config := gather_info.Config{
+		OutputFilePath: "",
+		Client:         vCenterCredentials,
+	}
+
+	vmInfo := gather_info.VMInfo{
+		Config:     &config,
+		Log:        nil,
+		OutputFile: "",
+	}
+
 	// gather VM information + update the output file (vm list , vm detailed, vm tools, vm networks,
+	err = vmInfo.Run(context.Background())
+	if err != nil {
+		// gather all errors and continue
+	}
+
 	// gather ESXi information + update the output file (esxi_hosts  , powered on hosts)
 	// gather dataceneter information + update the output file
 	// gather folders information + update the output file
@@ -123,8 +146,7 @@ func ReadCredentialFile() (*VCenterCredentials, error) {
 	return vcenterCreds, nil
 }
 
-// NewClient creates a vim25.Client for use in the examples
-func NewClient(ctx context.Context) (*vim25.Client, error) {
+func NewVCenterClients(ctx context.Context) (*gather_info.VCenterClients, error) {
 	creds, err := ReadCredentialFile()
 	if err != nil {
 		return nil, err
@@ -136,20 +158,20 @@ func NewClient(ctx context.Context) (*vim25.Client, error) {
 	}
 	u.User = url.UserPassword(creds.username, creds.password)
 
-	insecureDescription := fmt.Sprintf("Don't verify the server's certificate chain [%s]", creds.insecure)
-	insecureFlag := flag.Bool("indecure", creds.insecure, insecureDescription)
-
-	// Share govc's session cache
-	s := &cache.Session{
-		URL:      u,
-		Insecure: *insecureFlag,
-	}
-
-	c := new(vim25.Client)
-	err = s.Login(ctx, c, nil)
+	soapClient, err := govmomi.NewClient(ctx, u, creds.insecure)
 	if err != nil {
 		return nil, err
 	}
 
-	return c, nil
+	// Initialize the REST client
+	restClient := rest.NewClient(soapClient.Client)
+	err = restClient.Login(ctx, u.User)
+	if err != nil {
+		return nil, err
+	}
+
+	return &gather_info.VCenterClients{
+		SOAPClient: soapClient,
+		RESTClient: restClient,
+	}, nil
 }
